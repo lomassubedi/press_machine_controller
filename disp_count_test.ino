@@ -1,6 +1,8 @@
 #include "SevSeg.h"
 #include "Thread.h"
 
+#define     MEM_SIZE    4
+
 const unsigned char ledPin = 13;
 
 volatile char pulseCount = 0;
@@ -10,10 +12,16 @@ const unsigned char inMemoryConfrm = 3;
 
 const unsigned char inUpDownStatus = 4;
 
+const unsigned char inSetting = 5;
+
 const unsigned char outSignalUp = 16;
 const unsigned char outSignalDown = 17;
 
+volatile bool flag_setting = false;
+
 char buffr[250];
+volatile char memVal[MEM_SIZE];
+volatile char memCount = 0;
 
 SevSeg sevseg; //Instantiate a seven segment controller object
 
@@ -32,6 +40,10 @@ void toggleCallback(){
 }
 
 void ISRPulseCount() {
+  
+  if (!flag_setting) 
+    return;
+    
   if(digitalRead(inUpDownStatus)) {
     pulseCount++;
     if(pulseCount > 99) pulseCount = 0;
@@ -39,6 +51,21 @@ void ISRPulseCount() {
     pulseCount--;
     if(pulseCount < 0) pulseCount = 0;
   }
+}
+
+void ISRMem() {
+//  memVal[memCount] = pulseCount;
+//  memCount++;     // Increase memory count 
+}
+
+bool getSettingIn(void) {
+  if(digitalRead(inSetting)) return false;
+  else return true;
+}
+
+bool getUpDownIn(void) {
+  if(digitalRead(inUpDownStatus)) return true;
+  else return false;
 }
 
 void setup() {
@@ -65,11 +92,16 @@ void setup() {
   pinMode(outSignalUp, OUTPUT);
   pinMode(outSignalDown, OUTPUT);
 
+  pinMode(inSetting, INPUT_PULLUP);
+
   digitalWrite(outSignalUp, LOW);
   digitalWrite(outSignalDown, LOW);
 
   pinMode(clockInPin, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(clockInPin), ISRPulseCount, FALLING);
+  attachInterrupt(digitalPinToInterrupt(clockInPin), ISRPulseCount, RISING);
+
+  pinMode(inMemoryConfrm, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(inMemoryConfrm), ISRMem, FALLING);
 
   // Init thread
   toggleThread.onRun(toggleCallback);
@@ -82,13 +114,19 @@ void loop() {
   if(toggleThread.shouldRun())
     toggleThread.run();
     
-  if(digitalRead(inUpDownStatus)) {
+  if(getUpDownIn() && getSettingIn()) {
+    flag_setting = true;
     digitalWrite(outSignalUp, HIGH);
     digitalWrite(outSignalDown, LOW);
-  } else {
+  } else if((!getUpDownIn()) && getSettingIn()) {
+    flag_setting = true;
     digitalWrite(outSignalUp, LOW);
     digitalWrite(outSignalDown, HIGH);
-  } 
+  } else {
+    flag_setting = false;
+    digitalWrite(outSignalUp, LOW);
+    digitalWrite(outSignalDown,LOW);
+  }
 
   sevseg.setNumber(pulseCount, 0);
   sevseg.refreshDisplay(); // Must run repeatedly
