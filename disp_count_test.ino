@@ -19,6 +19,11 @@ const unsigned char inMemoryConfrm = 18;
 volatile int pulseCount = 0;
 volatile bool flag_setting = false;
 volatile bool flag_key_trig = false;
+volatile bool flag_last_state_set = false;
+
+volatile bool flag_run_counter = false;
+volatile bool flag_run_count_up = false;
+volatile bool flag_run_count_down = false;
 
 #define     MEM_SIZE    4
 
@@ -27,6 +32,7 @@ volatile int memVal[MEM_SIZE];
 volatile char memCount = 0;
 volatile char memGetIndex = 0;
 volatile int prevDisp = 0;
+volatile unsigned char trigCount = 0;
 
 
 // callback for toggleThread
@@ -39,27 +45,29 @@ void toggleCallback() {
   sprintf(buffr, "Current counter value : %d", pulseCount);
   Serial.println(buffr);
   Serial.println(" ------ Memory buffer content -------- ");
-  Serial.println("MEM0   MEM1    MEM2    MEM3");
-  sprintf(buffr, "%d    %d    %d    %d", memVal[0], memVal[1], memVal[2], memVal[3]);  
+  Serial.println("MEM1   MEM2    MEM3    MEM4");
+  sprintf(buffr, "%d     %d      %d      %d", memVal[0], memVal[1], memVal[2], memVal[3]);  
   Serial.println(buffr);
 }
 
 void ISRPulseCount() {
   
-  if (!flag_setting) 
+  if ((!flag_setting) || (!flag_run_counter)) 
     return;
     
-  if(digitalRead(inUpDownStatus)) {
+  if(digitalRead(inUpDownStatus) || flag_run_count_up) {
     pulseCount++;
-    if(pulseCount > 99) pulseCount = 0;
+    if(pulseCount > 999) pulseCount = 0;
   } else {
     pulseCount--;
     if(pulseCount < 0) pulseCount = 0;
   }
+
 }
 
 void ISRTrigRun() {
   flag_key_trig = true;
+  Serial.println("How am I supposed to be in here ?!");
   return;
 }
 
@@ -75,7 +83,7 @@ bool getUpDownIn(void) {
 
 bool getMemSetIn(void) {
   if (digitalRead(inMemoryConfrm)) {
-    delay(50);    // Debounce Delay
+    delay(50);                        // Debounce Delay
     while(digitalRead(inMemoryConfrm));
     return true;
   }
@@ -149,13 +157,37 @@ void loop() {
   if(getMemSetIn() && (!flag_setting)) {  // If only display is on stop
     memCount = memCount % MEM_SIZE;       // Reset memory on overflow
     memVal[memCount++] = pulseCount;
+    
+    flag_last_state_set = true;
+    trigCount = 0;
+    
     sprintf(buffr, "Memory set at value %d.\tMemory index: %d.",pulseCount, memCount);
     Serial.println(buffr);
   }
-  
-//  if(flag_key_trig) {
-//    
-//  }  
+
+  // ---- If trigger pressed and system is running in Normal mode
+  if(flag_key_trig) {
+    flag_key_trig = false;
+    if(flag_last_state_set || (memCount == 1)) { // Stay display halted at first memory count
+      flag_last_state_set = false;
+      pulseCount = memVal[trigCount];
+    } else {
+            
+//      trigCount = trigCount % memCount;
+//      trigCount++;
+//      if(pulseCount < memVal[trigCount])
+//      
+//      trigCount++;
+//      if(trigCount == 0)
+//      
+//      trigCount++ 
+//      flag_run_count_up = true; 
+//      digitalWrite(outSignalUp, HIGH);
+//      digitalWrite(outSignalDown, LOW);
+       
+      // do something
+    }
+  }  
 
   sevseg.setNumber(pulseCount, 0);
   sevseg.refreshDisplay(); // Must run repeatedly
