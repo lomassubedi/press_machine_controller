@@ -8,7 +8,10 @@ const unsigned char ledPin = 13;
 volatile char pulseCount = 0;
 
 const unsigned char clockInPin = 2;
-const unsigned char inMemoryConfrm = 3;
+
+const unsigned char inTrigRun = 3;
+
+const unsigned char inMemoryConfrm = 18;
 
 const unsigned char inUpDownStatus = 4;
 
@@ -18,10 +21,14 @@ const unsigned char outSignalUp = 16;
 const unsigned char outSignalDown = 17;
 
 volatile bool flag_setting = false;
+volatile bool flag_key_trig = false;
 
 char buffr[250];
 volatile char memVal[MEM_SIZE];
 volatile char memCount = 0;
+volatile char memGetIndex = 0;
+
+volatile char prevDisp = 0;
 
 SevSeg sevseg; //Instantiate a seven segment controller object
 
@@ -53,9 +60,9 @@ void ISRPulseCount() {
   }
 }
 
-void ISRMem() {
-//  memVal[memCount] = pulseCount;
-//  memCount++;     // Increase memory count 
+void ISRTrigRun() {
+  flag_key_trig = true;
+  return;
 }
 
 bool getSettingIn(void) {
@@ -65,6 +72,15 @@ bool getSettingIn(void) {
 
 bool getUpDownIn(void) {
   if(digitalRead(inUpDownStatus)) return true;
+  else return false;
+}
+
+bool getMemSetIn(void) {
+  if (digitalRead(inMemoryConfrm)) {
+    delay(50);
+    while(digitalRead(inMemoryConfrm));
+    return true;
+  }
   else return false;
 }
 
@@ -100,8 +116,10 @@ void setup() {
   pinMode(clockInPin, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(clockInPin), ISRPulseCount, RISING);
 
-  pinMode(inMemoryConfrm, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(inMemoryConfrm), ISRMem, FALLING);
+  pinMode(inMemoryConfrm, INPUT);
+
+  pinMode(inTrigRun, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(inTrigRun), ISRTrigRun, FALLING);
 
   // Init thread
   toggleThread.onRun(toggleCallback);
@@ -127,6 +145,43 @@ void loop() {
     digitalWrite(outSignalUp, LOW);
     digitalWrite(outSignalDown,LOW);
   }
+
+
+  // Memory Set 
+  if(getMemSetIn() && (!flag_setting)) { // If only display is on stop
+    memVal[memCount] = pulseCount;
+    memCount++;                         // Increase memory count 
+    if(memCount > 4) memCount = 0;     // Reset memory on overflow
+    sprintf(buffr, "Memory set at value %d.\tMemory index: %d.",pulseCount, memCount);
+    Serial.println(buffr);
+  }
+
+  // Memory trigger 
+  if(flag_key_trig) {   
+     
+    if(memCount) {  // If only memory has been set
+      if(pulseCount > memVal[memGetIndex]) {
+        // Turn ON the Down Signal
+        digitalWrite(outSignalUp, LOW);
+        digitalWrite(outSignalDown, HIGH);
+//        Serial.println("I am here on Down !!");
+      } else if(pulseCount < memVal[memGetIndex]) {
+        // Turn ON the UP signal
+        digitalWrite(outSignalUp, HIGH);
+        digitalWrite(outSignalDown, LOW);
+      } else {
+        // Do nothing
+        digitalWrite(outSignalUp, LOW);
+        digitalWrite(outSignalDown,LOW);
+      }    
+      pulseCount = memVal[memGetIndex];
+      memGetIndex++;  
+      if(memGetIndex >= memCount)  memGetIndex = 0;
+    }
+
+    flag_key_trig = false;
+  }
+
 
   sevseg.setNumber(pulseCount, 0);
   sevseg.refreshDisplay(); // Must run repeatedly
