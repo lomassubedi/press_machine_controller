@@ -24,6 +24,7 @@ volatile bool flag_last_state_set = false;
 volatile bool flag_run_counter = false;
 volatile bool flag_run_count_up = false;
 volatile bool flag_run_count_down = false;
+volatile bool flag_last_state_trig = false;
 
 #define     MEM_SIZE    4
 
@@ -42,32 +43,35 @@ void toggleCallback() {
   digitalWrite(ledPin, pinStatus);
 
   // Print the count value 
+  Serial.println("---------------- Debug Console ----------------");
   sprintf(buffr, "Current counter value : %d", pulseCount);
   Serial.println(buffr);
   Serial.println(" ------ Memory buffer content -------- ");
   Serial.println("MEM1   MEM2    MEM3    MEM4");
   sprintf(buffr, "%d     %d      %d      %d", memVal[0], memVal[1], memVal[2], memVal[3]);  
   Serial.println(buffr);
+  sprintf(buffr, "TriggerCount: %d, MemCount: %d",trigCount, memCount);
+  Serial.println(buffr); 
+  Serial.println("-----------------------------------------------\r\n");
 }
 
 void ISRPulseCount() {
   
-  if ((!flag_setting) || (!flag_run_counter)) 
-    return;
-    
-  if(digitalRead(inUpDownStatus) || flag_run_count_up) {
-    pulseCount++;
-    if(pulseCount > 999) pulseCount = 0;
-  } else {
-    pulseCount--;
-    if(pulseCount < 0) pulseCount = 0;
+  if (flag_setting || flag_run_counter) {
+//    Serial.println("All flag okay at interrupt.");
+    if(digitalRead(inUpDownStatus) || flag_run_count_up) {
+      pulseCount++;
+      if(pulseCount > 999) pulseCount = 0;
+    } else {
+      pulseCount--;
+      if(pulseCount < 0) pulseCount = 0;
+    }
   }
-
 }
 
 void ISRTrigRun() {
   flag_key_trig = true;
-  Serial.println("How am I supposed to be in here ?!");
+  Serial.println("Got trigger/run command from user");
   return;
 }
 
@@ -90,6 +94,20 @@ bool getMemSetIn(void) {
   else return false;
 }
 
+void outUp(void) {
+  digitalWrite(outSignalUp, HIGH);
+  digitalWrite(outSignalDown, LOW);
+}
+
+void outDown(void) {
+  digitalWrite(outSignalUp, LOW);
+  digitalWrite(outSignalDown, HIGH);
+}
+
+void outClear(void) {
+  digitalWrite(outSignalUp, LOW);
+  digitalWrite(outSignalDown, LOW);
+}
 void setup() {
 
 	// Display setup
@@ -119,13 +137,15 @@ void setup() {
   digitalWrite(outSignalUp, LOW);
   digitalWrite(outSignalDown, LOW);
 
-  pinMode(clockInPin, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(clockInPin), ISRPulseCount, RISING);
-
   pinMode(inMemoryConfrm, INPUT);
 
+  delay(1000);
+  
+  pinMode(clockInPin, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(clockInPin), ISRPulseCount, RISING);
+  
   pinMode(inTrigRun, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(inTrigRun), ISRTrigRun, FALLING);
+  attachInterrupt(digitalPinToInterrupt(inTrigRun), ISRTrigRun, RISING);  
 
   // Init thread
   toggleThread.onRun(toggleCallback);
@@ -140,16 +160,13 @@ void loop() {
     
   if(getUpDownIn() && getSettingIn()) {
     flag_setting = true;
-    digitalWrite(outSignalUp, HIGH);
-    digitalWrite(outSignalDown, LOW);
+    outUp();
   } else if((!getUpDownIn()) && getSettingIn()) {
     flag_setting = true;
-    digitalWrite(outSignalUp, LOW);
-    digitalWrite(outSignalDown, HIGH);
+    outDown();
   } else {
     flag_setting = false;
-    digitalWrite(outSignalUp, LOW);
-    digitalWrite(outSignalDown,LOW);
+    outClear();
   }
 
 
@@ -167,27 +184,39 @@ void loop() {
 
   // ---- If trigger pressed and system is running in Normal mode
   if(flag_key_trig) {
+    Serial.println("Processing trigger key in here !!");
     flag_key_trig = false;
     if(flag_last_state_set || (memCount == 1)) { // Stay display halted at first memory count
       flag_last_state_set = false;
       pulseCount = memVal[trigCount];
     } else {
             
-//      trigCount = trigCount % memCount;
-//      trigCount++;
-//      if(pulseCount < memVal[trigCount])
-//      
-//      trigCount++;
-//      if(trigCount == 0)
-//      
-//      trigCount++ 
-//      flag_run_count_up = true; 
-//      digitalWrite(outSignalUp, HIGH);
-//      digitalWrite(outSignalDown, LOW);
-       
-      // do something
+      trigCount = trigCount % memCount;
+      trigCount++;
+      
+      if(pulseCount < memVal[trigCount]) {
+        outDown();                  // Output at Down
+        flag_run_counter = true;    // Run the counter process
+//        flag_last_state_trig = true;
+      } else if(pulseCount > memVal[trigCount]) {
+        outUp();                    // Output at up
+        flag_run_counter = true;   // Run the counter process
+//        flag_last_state_trig = true;
+      } else {
+        outClear();
+//        flag_run_counter = false;
+      }
     }
-  }  
+    flag_last_state_trig = true;
+  }
+
+  if(flag_last_state_trig) {
+    flag_last_state_trig = false;
+    if(pulseCount == memVal[trigCount]) {
+      outClear();
+      flag_run_counter = false;    
+    }
+  }
 
   sevseg.setNumber(pulseCount, 0);
   sevseg.refreshDisplay(); // Must run repeatedly
