@@ -1,9 +1,9 @@
 #include "SevSeg.h"
 #include "Thread.h"
 
+#define     MEM_SIZE    4
 //Instantiate a seven segment controller object
 SevSeg sevseg;
-
 // Pin toggle thread !!
 Thread toggleThread = Thread();
 
@@ -17,32 +17,14 @@ const unsigned char outSignalDown = 17;
 const unsigned char inMemoryConfrm = 18;
 
 volatile int pulseCount = 0;
-
-
-
-// volatile bool flag_setting = false;
-// volatile bool flag_key_trig = false;
-// volatile bool flag_last_state_set = false;
-// volatile bool flag_pulse_detected = false;
-
-// volatile bool flag_run_counter = false;
-// volatile bool flag_run_count_up = false;
-// volatile bool flag_run_count_down = false;
-// volatile bool flag_last_state_trig = false;
-
-// vloatile bool flag_stop = false;
-
-#define     MEM_SIZE    4
+volatile bool flag_pulse_detected = false;
 
 char buffr[250];
-
 volatile int memVal[MEM_SIZE];
-
 volatile char memCount = 0;
 volatile char memGetIndex = 0;
 volatile int prevDisp = 0;
 volatile unsigned char trigCount = 0;
-
 
 // callback for toggleThread
 void toggleCallback() {
@@ -55,29 +37,28 @@ void toggleCallback() {
   Serial.println("---------------- Debug Console ----------------");
   sprintf(buffr, "Current counter value : %d", pulseCount);
   Serial.println(buffr);
-  Serial.println(" ------ Memory buffer content -------- ");
-  Serial.println("MEM1   MEM2    MEM3    MEM4");
-  sprintf(buffr, "%d     %d      %d      %d", memVal[0], memVal[1], memVal[2], memVal[3]);  
-  Serial.println(buffr);
-  sprintf(buffr, "TriggerCount: %d, MemCount: %d",trigCount, memCount);
-  Serial.println(buffr); 
+ Serial.println(" ------ Memory buffer content -------- ");
+ Serial.println("MEM1   MEM2    MEM3    MEM4");
+ sprintf(buffr, "%d     %d      %d      %d", memVal[0], memVal[1], memVal[2], memVal[3]);  
+ Serial.println(buffr);
+ sprintf(buffr, "TriggerCount: %d, MemCount: %d",trigCount, memCount);
+ Serial.println(buffr); 
   Serial.println("-----------------------------------------------\r\n");
 }
 
 void ISRPulseCount() {
-  if
   flag_pulse_detected = true;
 }
 
 void ISRTrigRun() {
     
-  delay(50); // Debounce time  
-  
-  if(!digitalRead(inTrigRun)) {
-    flag_key_trig = true;
-    Serial.println("Got trigger/run command from user");    
-  }
-  return;
+//  delay(50); // Debounce time  
+//  
+//  if(!digitalRead(inTrigRun)) {
+//    flag_key_trig = true;
+//    Serial.println("Got trigger/run command from user");    
+//  }
+//  return;
 }
 
 bool getSettingIn(void) {
@@ -115,16 +96,18 @@ void outClear(void) {
 }
 
 void run(void) {
-  
-  if(getUpDownIn()) {
-    pulseCount++;
-    outUp();
-  if(pulseCount > 999) pulseCount = 0;
-  } else {
-    pulseCount--;
-    outDown();
-    if(pulseCount < 0) pulseCount = 0;
-  }  
+  if(flag_pulse_detected) {
+  	flag_pulse_detected = false;
+	if(getUpDownIn()) {
+		pulseCount++;
+		outUp();
+		if(pulseCount > 999) pulseCount = 0;
+	} else {
+		pulseCount--;
+		outDown();
+		if(pulseCount < 0) pulseCount = 0;
+	} 
+  } 
 }
 
 void stop(void) {
@@ -161,13 +144,13 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(inTrigRun), ISRTrigRun, FALLING);  
 
   // Init Outputs
-  outClear();
+  digitalWrite(outSignalUp, LOW);
+  digitalWrite(outSignalDown, LOW);
 
   // Init thread
   toggleThread.onRun(toggleCallback);
   toggleThread.setInterval(1000);
 }
-
 
 void loop() {
 
@@ -183,16 +166,13 @@ void loop() {
 
 
   // Memory Set 
-  // if(getMemSetIn() && (!flag_setting)) {  // If only display is on stop
-  //   memCount = memCount % MEM_SIZE;       // Reset memory on overflow
-  //   memVal[memCount++] = pulseCount;
+  if(getMemSetIn() && (!getSettingIn())) {  // If only display is on stop
+    memCount = memCount % MEM_SIZE;       	// Reset memory on overflow
+    memVal[memCount++] = pulseCount;
     
-  //   flag_last_state_set = true;
-  //   trigCount = 0;
-    
-  //   sprintf(buffr, "Memory set at value %d.\tMemory index: %d.",pulseCount, memCount);
-  //   Serial.println(buffr);
-  // }
+    sprintf(buffr, "Memory set at value %d.\tMemory index: %d.",pulseCount, memCount);
+    Serial.println(buffr);
+  }
 
 
   sevseg.setNumber(pulseCount, 0);
