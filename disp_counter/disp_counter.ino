@@ -6,6 +6,7 @@
 SevSeg sevseg;
 // Pin toggle thread !!
 Thread toggleThread = Thread();
+Thread printDispThread = Thread();
 
 const unsigned char clockInPin = 2;       // Interrupt enabled Clock receive
 const unsigned char inTrigRun = 3;        // Interrupt enabled trigger/run 
@@ -38,20 +39,21 @@ void toggleCallback() {
 	static bool pinStatus = false;
 	pinStatus = !pinStatus;
 	digitalWrite(ledPin, pinStatus);
+    
+}
 
-	// Print the count value 
-	Serial.println("---------------- Debug Console ----------------");
-	sprintf(buffr, "Current counter value : %d", pulseCount);
-	Serial.println(buffr);
-	Serial.println(" ------ Memory buffer content -------- ");
-	Serial.println("MEM1   MEM2    MEM3    MEM4");
-	sprintf(buffr, "%d     %d      %d      %d", memVal[0], memVal[1], memVal[2], memVal[3]);  
-	Serial.println(buffr);
-	sprintf(buffr, "TriggerCount: %d, MemCount: %d",trigCount, memCount);
-	Serial.println(buffr); 
-	sprintf(buffr, "Current Disp Val : %d, Current Memval(trigCount): %d", pulseCount, memVal[trigCount]);
-	Serial.println(buffr);
-	Serial.println("-----------------------------------------------\r\n");
+// Callback for print message
+void printDebugMessage() {
+  // Print the count value 
+  Serial.println("---------------- Debug Console ----------------");
+  Serial.println("MEM1   MEM2    MEM3    MEM4");
+  sprintf(buffr, "%d     %d      %d      %d", memVal[0], memVal[1], memVal[2], memVal[3]);  
+  Serial.println(buffr);
+  sprintf(buffr, "TriggerCount: %d, MemCount: %d",trigCount, memCount);
+  Serial.println(buffr); 
+  sprintf(buffr, "Current Disp Val : %d, Current Memval(trigCount): %d", pulseCount, memVal[trigCount]);
+  Serial.println(buffr);
+  Serial.println("-----------------------------------------------\r\n");  
 }
 
 void ISRPulseCount() {
@@ -70,8 +72,8 @@ void ISRTrigRun() {
 }
 
 bool getSettingIn(void) {
-	if(digitalRead(inSetting)) return false;
-	else return true;
+	if(!digitalRead(inSetting)) return true;
+	else return false;
 }
 
 bool getUpDownIn(void) {
@@ -80,10 +82,19 @@ bool getUpDownIn(void) {
 }
 
 bool getMemSetIn(void) {
-	if (digitalRead(inMemoryConfrm)) {
-		delay(50);                        // Debounce Delay
-		while(digitalRead(inMemoryConfrm));
-		return true;
+	if (!digitalRead(inMemoryConfrm)) {
+		delay(30);                        // Debounce Delay
+   
+		while(!digitalRead(inMemoryConfrm)) {
+      sevseg.setNumber(1000, 0);
+      sevseg.refreshDisplay();
+		}
+   delay(30);
+   return true;
+
+//    if(!digitalRead(inMemoryConfrm))
+//		  return true;
+//    else return false;
 	} else return false;
 }
 
@@ -150,14 +161,13 @@ void handleTrigger(void) {
 		return; 									// if no memory has been set return 
 	}
 
-	if(flag_last_state_set || (memCount == 1)) { 	// Stay display halted at first memory count
-		flag_last_state_set = false;
-		pulseCount = memVal[0];						// Come to initial memory location
-		stop();
-		return;
-    }
+//	if(flag_last_state_set || (memCount == 1)) { 	// Stay display halted at first memory count
+//		flag_last_state_set = false;
+//		pulseCount = memVal[0];						// Come to initial memory location
+//		stop();
+//		return;
+//    }
 
-    trigCount++;    
 
 	if(pulseCount < memVal[trigCount]) {
 		flag_run_up = true;                   		// Output at up
@@ -167,23 +177,26 @@ void handleTrigger(void) {
 		// stop();
 	} 	
 
-	prevCountVal = trigCount;
+  prevCountVal = trigCount;
+  trigCount++; 
 	trigCount = trigCount % memCount;
 
-	if(prevCountVal == memCount) {
-		flag_run_up = true; 
-	}
+//	if(prevCountVal == memCount) {
+//    pulseCount = memVal[0];           // Come to initial memory location
+//    stop();
+//    return;
+//	}
 
 }
 
 void setup() {
 
 	// Display setup
-	byte numDigits = 2;
-	byte digitPins[] = {14, 15};
+	byte numDigits = 3;
+	byte digitPins[] = {14, 15, 19};
 	byte segmentPins[] = {6, 7, 8, 9, 10, 11, 12};
 	bool resistorsOnSegments = false; // 'false' means resistors are on digit pins
-	byte hardwareConfig = P_TRANSISTORS; // See README.md for options
+	byte hardwareConfig = N_TRANSISTORS; // See README.md for options
 	bool updateWithDelays = false; // Default. Recommended
 	bool leadingZeros = true; // Use 'true' if you'd like to keep the leading zeros
 
@@ -193,15 +206,15 @@ void setup() {
 	Serial.begin(115200);
 
 	pinMode(ledPin, OUTPUT);
-	pinMode(inUpDownStatus, INPUT);
+	pinMode(inUpDownStatus, INPUT_PULLUP);
 	pinMode(inMemoryConfrm, INPUT_PULLUP);
 	pinMode(outSignalUp, OUTPUT);
 	pinMode(outSignalDown, OUTPUT);
 	pinMode(inSetting, INPUT_PULLUP);  
-	pinMode(inMemoryConfrm, INPUT);
 
 	pinMode(clockInPin, INPUT_PULLUP);
 	attachInterrupt(digitalPinToInterrupt(clockInPin), ISRPulseCount, FALLING);
+ 
 	pinMode(inTrigRun, INPUT_PULLUP);
 	attachInterrupt(digitalPinToInterrupt(inTrigRun), ISRTrigRun, FALLING);  
 
@@ -211,7 +224,10 @@ void setup() {
 
 	// Init thread
 	toggleThread.onRun(toggleCallback);
-	toggleThread.setInterval(1000);
+	toggleThread.setInterval(200);
+
+   printDispThread.onRun(printDebugMessage);
+   printDispThread.setInterval(1000);
 }
 
 void loop() {
@@ -219,24 +235,29 @@ void loop() {
   // checks if thread should run
 	if(toggleThread.shouldRun())
 		toggleThread.run();
-
-	if(!flag_setting_done)
-		if(getSettingIn()) {
-		run();
-		} else {
-			stop();
-		}
-
-  	// Memory Set 
-	if(getMemSetIn() && (!getSettingIn())) {  // If only display is on stop
-		memCount = memCount % MEM_SIZE;       	// Reset memory on overflow
-		memVal[memCount++] = pulseCount;
-
-		sprintf(buffr, "Memory set at value %d.\tMemory index: %d.",pulseCount, memCount);
-		Serial.println(buffr);
-		trigCount = 0;
-		flag_last_state_set = true;
-  	}
+  /* uncomment if dibug message required */
+//  if(printDispThread.shouldRun())
+//    printDispThread.run();
+    
+	if(!flag_setting_done) {
+  		if(getSettingIn()) {
+  		run();
+  		} else {
+  			stop();
+  		}
+  
+    	// Memory Set 
+  	if(getMemSetIn() && (!getSettingIn())) {  // If only display is on stop  
+  		
+  		memCount = memCount % MEM_SIZE;       	// Reset memory on overflow
+  		memVal[memCount++] = pulseCount;
+  
+  		sprintf(buffr, "Memory set at value %d.\tMemory index: %d.",pulseCount, memCount);
+  		Serial.println(buffr);
+  		trigCount = 0;
+  		flag_last_state_set = true;
+    	}
+	}
 
 
 	// If trigger/run key is pressed !!
@@ -249,7 +270,7 @@ void loop() {
 	// Continious run up or down
 	if(flag_run_up) {
 		runUp();
-		if(pulseCount == memVal[trigCount]) {
+		if(pulseCount == memVal[prevCountVal]) {
 			flag_run_up = false;
 			stop();
 		}
@@ -257,7 +278,7 @@ void loop() {
 
 	if(flag_run_down) {
 		runDown();
-		if(pulseCount == memVal[trigCount]) {
+		if(pulseCount == memVal[prevCountVal]) {
 			flag_run_down = false;
 			stop();
 		}
