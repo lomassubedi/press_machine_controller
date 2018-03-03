@@ -26,6 +26,7 @@ volatile bool flag_run_up = false;
 volatile bool flag_run_down = false;
 volatile bool flag_setting_done = false;
 volatile bool flag_get_init = false;
+volatile bool flag_cycle_done = false;
 
 char buffr[250];
 volatile int memVal[MEM_SIZE];
@@ -165,28 +166,39 @@ void handleTrigger(void) {
 		return; 									// if no memory has been set return 
 	}
 
-	if(flag_last_state_set) { 	// if the memory has been just set
+ if(flag_cycle_done) { // If cycle is complete and 
+  flag_get_init = true;
+  return;
+ }
+
+	if(flag_last_state_set) { 			// if the memory has been just set
     flag_last_state_set = false;
-		flag_get_init = true; 		// Do initialization of the system
+		flag_get_init = true; 			// Do initialization of the system
 		return;
 	}
-
-
+  
 	if(pulseCount < memVal[trigCount]) {
 		flag_run_up = true;                   		// Output at up
 	} else if(pulseCount > memVal[trigCount]) {
 		flag_run_down = true;                 		// Output at Down
 	} else {
 		// stop();
-	} 	
+	}	
 
 	prevCountVal = trigCount;
 	trigCount++; 
 	trigCount = trigCount % memCount;
 
-	if(prevCountVal > trigCount) {	// in case of memory rollover
-		flag_get_init = true;		// Do initialization of the system
-	}
+    if(!trigCount) {    // If cycle is complete last memory reached
+      flag_cycle_done = true;
+    }
+    
+//	if((prevCountVal == memCount)) {	      // in case of memory rollover
+//		flag_get_init = true;		              // Do initialization of the system
+//    prevCountVal = 0;
+//    trigCount = 0;
+//	} 
+  
 }
 
 void setup() {
@@ -276,6 +288,10 @@ void loop() {
 		handleTrigger();
 	}
 
+//	if(flag_cycle_done) {
+//		flag_cycle_done = false;
+//	}
+
 	if(flag_get_init) {
 		// Disable general run up and down routine 
 		flag_run_up = false;
@@ -283,9 +299,14 @@ void loop() {
 		runDown();        
 		if(!digitalRead(inHomeReed)) {
       Serial.println("Tracked initial position!!!");
-			flag_get_init = false;
-			pulseCount = 0;
-			stop();
+      flag_get_init = false;
+      pulseCount = 0;     
+      stop();
+
+      if(flag_cycle_done) {
+        flag_cycle_done = false;
+        handleTrigger();
+      }
 		}
 	}
 
