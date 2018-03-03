@@ -16,6 +16,7 @@ const unsigned char ledPin = 13;
 const unsigned char outSignalUp = 16;
 const unsigned char outSignalDown = 17;
 const unsigned char inMemoryConfrm = 18;
+const unsigned char inHomeReed = 19;
 
 volatile int pulseCount = 0;
 volatile bool flag_pulse_detected = false;
@@ -24,6 +25,7 @@ volatile bool flag_key_trig = false;
 volatile bool flag_run_up = false;
 volatile bool flag_run_down = false;
 volatile bool flag_setting_done = false;
+volatile bool flag_get_init = false;
 
 char buffr[250];
 volatile int memVal[MEM_SIZE];
@@ -49,10 +51,12 @@ void printDebugMessage() {
   Serial.println("MEM1   MEM2    MEM3    MEM4");
   sprintf(buffr, "%d     %d      %d      %d", memVal[0], memVal[1], memVal[2], memVal[3]);  
   Serial.println(buffr);
-  sprintf(buffr, "TriggerCount: %d, MemCount: %d",trigCount, memCount);
+  sprintf(buffr, "TriggerCount: %d, prevCountVal: %d, MemCount: %d",trigCount, prevCountVal, memCount);
   Serial.println(buffr); 
-  sprintf(buffr, "Current Disp Val : %d, Current Memval(trigCount): %d", pulseCount, memVal[trigCount]);
+  sprintf(buffr, "Current Disp Val : %d, Current Memval[trigCount]: %d", pulseCount, memVal[trigCount]);
   Serial.println(buffr);
+  if(flag_get_init)
+    Serial.println("Tracking for initial position.");
   Serial.println("-----------------------------------------------\r\n");  
 }
 
@@ -161,12 +165,11 @@ void handleTrigger(void) {
 		return; 									// if no memory has been set return 
 	}
 
-//	if(flag_last_state_set || (memCount == 1)) { 	// Stay display halted at first memory count
-//		flag_last_state_set = false;
-//		pulseCount = memVal[0];						// Come to initial memory location
-//		stop();
-//		return;
-//    }
+	if(flag_last_state_set) { 	// if the memory has been just set
+    flag_last_state_set = false;
+		flag_get_init = true; 		// Do initialization of the system
+		return;
+	}
 
 
 	if(pulseCount < memVal[trigCount]) {
@@ -177,16 +180,13 @@ void handleTrigger(void) {
 		// stop();
 	} 	
 
-  prevCountVal = trigCount;
-  trigCount++; 
+	prevCountVal = trigCount;
+	trigCount++; 
 	trigCount = trigCount % memCount;
 
-//	if(prevCountVal == memCount) {
-//    pulseCount = memVal[0];           // Come to initial memory location
-//    stop();
-//    return;
-//	}
-
+	if(prevCountVal > trigCount) {	// in case of memory rollover
+		flag_get_init = true;		// Do initialization of the system
+	}
 }
 
 void setup() {
@@ -211,6 +211,7 @@ void setup() {
 	pinMode(outSignalUp, OUTPUT);
 	pinMode(outSignalDown, OUTPUT);
 	pinMode(inSetting, INPUT_PULLUP);  
+	pinMode(inHomeReed, INPUT_PULLUP);
 
 	pinMode(clockInPin, INPUT_PULLUP);
 	attachInterrupt(digitalPinToInterrupt(clockInPin), ISRPulseCount, FALLING);
@@ -221,6 +222,15 @@ void setup() {
 	// Init Outputs
 	digitalWrite(outSignalUp, LOW);
 	digitalWrite(outSignalDown, LOW);
+
+	// Initially get the home position
+	while(digitalRead(inHomeReed)) {
+		runDown(); 
+		Serial.println("Setting initial position, please wait...");
+		delay(50);
+	}
+
+	stop(); // Stop after the position is initialized
 
 	// Init thread
 	toggleThread.onRun(toggleCallback);
@@ -236,12 +246,12 @@ void loop() {
 	if(toggleThread.shouldRun())
 		toggleThread.run();
   /* uncomment if dibug message required */
-//  if(printDispThread.shouldRun())
-//    printDispThread.run();
+  if(printDispThread.shouldRun())
+    printDispThread.run();
     
 	if(!flag_setting_done) {
   		if(getSettingIn()) {
-  		run();
+  			run();
   		} else {
   			stop();
   		}
@@ -259,12 +269,24 @@ void loop() {
     	}
 	}
 
-
 	// If trigger/run key is pressed !!
 	if(flag_key_trig) { 
 		flag_key_trig	= false;
 		flag_setting_done = true;
 		handleTrigger();
+	}
+
+	if(flag_get_init) {
+		// Disable general run up and down routine 
+		flag_run_up = false;
+		flag_run_down = false;
+		runDown();        
+		if(!digitalRead(inHomeReed)) {
+      Serial.println("Tracked initial position!!!");
+			flag_get_init = false;
+			pulseCount = 0;
+			stop();
+		}
 	}
 
 	// Continious run up or down
