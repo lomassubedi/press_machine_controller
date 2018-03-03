@@ -16,7 +16,6 @@ const unsigned char inHomeReed = 13;
 const unsigned char outSignalUp = 16;
 const unsigned char outSignalDown = 17;
 const unsigned char inMemoryConfrm = 18;
-//const unsigned char inHomeReed = 19;
 
 volatile int pulseCount = 0;
 volatile bool flag_pulse_detected = false;
@@ -197,7 +196,7 @@ void setup() {
 	bool leadingZeros = true; // Use 'true' if you'd like to keep the leading zeros
 
 	sevseg.begin(hardwareConfig, numDigits, digitPins, segmentPins, resistorsOnSegments, updateWithDelays, leadingZeros);
-	sevseg.setBrightness(70);
+	sevseg.setBrightness(40);
 
 	Serial.begin(115200);
 
@@ -230,7 +229,7 @@ void setup() {
 	// Init thread
 #ifdef SERIAL_DEBUG
    printDispThread.onRun(printDebugMessage);
-   printDispThread.setInterval(1000);
+   printDispThread.setInterval(500);
 #endif   
 }
 
