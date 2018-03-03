@@ -2,21 +2,21 @@
 #include "Thread.h"
 
 #define     MEM_SIZE    4
+//#define     SERIAL_DEBUG
 //Instantiate a seven segment controller object
 SevSeg sevseg;
-// Pin toggle thread !!
-Thread toggleThread = Thread();
+
 Thread printDispThread = Thread();
 
 const unsigned char clockInPin = 2;       // Interrupt enabled Clock receive
 const unsigned char inTrigRun = 3;        // Interrupt enabled trigger/run 
 const unsigned char inUpDownStatus = 4;   // Up/Down Status Pin
 const unsigned char inSetting = 5;
-const unsigned char ledPin = 13;
+const unsigned char inHomeReed = 13;
 const unsigned char outSignalUp = 16;
 const unsigned char outSignalDown = 17;
 const unsigned char inMemoryConfrm = 18;
-const unsigned char inHomeReed = 19;
+//const unsigned char inHomeReed = 19;
 
 volatile int pulseCount = 0;
 volatile bool flag_pulse_detected = false;
@@ -35,15 +35,6 @@ volatile char memGetIndex = 0;
 volatile int prevDisp = 0;
 volatile unsigned char trigCount = 0;
 uint16_t prevCountVal = 0;
-
-// callback for toggleThread
-void toggleCallback() {
-
-	static bool pinStatus = false;
-	pinStatus = !pinStatus;
-	digitalWrite(ledPin, pinStatus);
-    
-}
 
 // Callback for print message
 void printDebugMessage() {
@@ -166,14 +157,14 @@ void handleTrigger(void) {
 		return; 									// if no memory has been set return 
 	}
 
- if(flag_cycle_done) { // If cycle is complete and 
-  flag_get_init = true;
+ if(flag_cycle_done) {    // If cycle is complete 
+  flag_get_init = true;   // Time to init
   return;
  }
 
 	if(flag_last_state_set) { 			// if the memory has been just set
     flag_last_state_set = false;
-		flag_get_init = true; 			// Do initialization of the system
+		flag_get_init = true; 			  // Do initialization of the system
 		return;
 	}
   
@@ -189,16 +180,9 @@ void handleTrigger(void) {
 	trigCount++; 
 	trigCount = trigCount % memCount;
 
-    if(!trigCount) {    // If cycle is complete last memory reached
+    if(!trigCount) {        // If cycle is complete last memory reached
       flag_cycle_done = true;
-    }
-    
-//	if((prevCountVal == memCount)) {	      // in case of memory rollover
-//		flag_get_init = true;		              // Do initialization of the system
-//    prevCountVal = 0;
-//    trigCount = 0;
-//	} 
-  
+    }  
 }
 
 void setup() {
@@ -217,7 +201,6 @@ void setup() {
 
 	Serial.begin(115200);
 
-	pinMode(ledPin, OUTPUT);
 	pinMode(inUpDownStatus, INPUT_PULLUP);
 	pinMode(inMemoryConfrm, INPUT_PULLUP);
 	pinMode(outSignalUp, OUTPUT);
@@ -245,21 +228,20 @@ void setup() {
 	stop(); // Stop after the position is initialized
 
 	// Init thread
-	toggleThread.onRun(toggleCallback);
-	toggleThread.setInterval(200);
-
+#ifdef SERIAL_DEBUG
    printDispThread.onRun(printDebugMessage);
    printDispThread.setInterval(1000);
+#endif   
 }
 
 void loop() {
 
-  // checks if thread should run
-	if(toggleThread.shouldRun())
-		toggleThread.run();
+  // checks if thread should run	
+#ifdef SERIAL_DEBUG   
   /* uncomment if dibug message required */
   if(printDispThread.shouldRun())
     printDispThread.run();
+#endif
     
 	if(!flag_setting_done) {
   		if(getSettingIn()) {
@@ -288,15 +270,12 @@ void loop() {
 		handleTrigger();
 	}
 
-//	if(flag_cycle_done) {
-//		flag_cycle_done = false;
-//	}
-
 	if(flag_get_init) {
 		// Disable general run up and down routine 
 		flag_run_up = false;
 		flag_run_down = false;
-		runDown();        
+		runDown();      
+      
 		if(!digitalRead(inHomeReed)) {
       Serial.println("Tracked initial position!!!");
       flag_get_init = false;
